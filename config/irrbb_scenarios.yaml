@@ -1,0 +1,13 @@
+source_context: "Bank Negara Malaysia, Exposure Draft on Interest Rate Risk in the Banking Book, 30 Sep 2025"
+status: "Exposure Draft - educational demonstration only"
+prepayment_cpr_multipliers:
+  Parallel Up: 0.8
+  Parallel Down: 1.2
+  Steepener: 0.8
+  Flattener: 1.2
+  Short Rate Up: 0.8
+  Short Rate Down: 1.2
+nmd_caps:
+  Retail transactional: {core_proportion: 0.90, average_maturity_years: 5.0}
+  Retail non-transactional: {core_proportion: 0.70, average_maturity_years: 4.5}
+  Wholesale: {core_proportion: 0.50, average_maturity_years: 4.0}
