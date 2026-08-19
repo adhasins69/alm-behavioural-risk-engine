@@ -1,7 +1,8 @@
-streamlit
-pandas
-numpy
-plotly
-scikit-learn
-statsmodels
-lifelines
+streamlit>=1.40
+pandas>=2.0
+numpy>=1.26
+plotly>=5.20
+scikit-learn>=1.4
+statsmodels>=0.14
+PyYAML>=6.0
+pytest>=8.0
