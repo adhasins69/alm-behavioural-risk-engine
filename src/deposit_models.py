@@ -4,6 +4,8 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 from statsmodels.duration.hazard_regression import PHReg
+from statsmodels.stats.diagnostic import het_breuschpagan
+from statsmodels.stats.stattools import durbin_watson
 
 CORE_CAPS = {
     "Retail transactional": (0.90, 5.0),
@@ -21,9 +23,20 @@ def fit_deposit_beta(ts: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, object]]
         fit_df = g.dropna()
         X = sm.add_constant(fit_df[["d_mkt"]])
         model = sm.OLS(fit_df["d_dep"], X).fit(cov_type="HAC", cov_kwds={"maxlags": 3})
-        summaries.append({"segment": seg, "short_run_beta": model.params["d_mkt"],
-                          "p_value": model.pvalues["d_mkt"], "r_squared": model.rsquared,
-                          "n_obs": int(model.nobs)})
+        ci = model.conf_int().loc["d_mkt"]
+        bp_p = float(het_breuschpagan(model.resid, model.model.exog)[1])
+        summaries.append({
+            "segment": seg,
+            "short_run_beta": float(model.params["d_mkt"]),
+            "std_error": float(model.bse["d_mkt"]),
+            "ci_low": float(ci.iloc[0]),
+            "ci_high": float(ci.iloc[1]),
+            "p_value": float(model.pvalues["d_mkt"]),
+            "r_squared": float(model.rsquared),
+            "durbin_watson": float(durbin_watson(model.resid)),
+            "breusch_pagan_p": bp_p,
+            "n_obs": int(model.nobs),
+        })
         models[seg] = model
     return pd.DataFrame(summaries), models
 
@@ -40,10 +53,13 @@ def fit_error_correction(ts: pd.DataFrame) -> pd.DataFrame:
         d = g.dropna()
         X = sm.add_constant(d[["dep_l1", "mkt_l1", "d_mkt", "d_mkt_l1"]])
         m = sm.OLS(d["d_dep"], X).fit(cov_type="HAC", cov_kwds={"maxlags": 3})
-        speed = m.params["dep_l1"]
-        long_beta = np.nan if abs(speed) < 1e-8 else -m.params["mkt_l1"] / speed
-        rows.append({"segment": seg, "speed_of_adjustment": speed, "long_run_beta": long_beta,
-                     "current_change_beta": m.params["d_mkt"], "r_squared": m.rsquared})
+        speed = float(m.params["dep_l1"])
+        long_beta = np.nan if abs(speed) < 1e-8 else float(-m.params["mkt_l1"] / speed)
+        rows.append({
+            "segment": seg, "speed_of_adjustment": speed, "long_run_beta": long_beta,
+            "current_change_beta": float(m.params["d_mkt"]), "r_squared": float(m.rsquared),
+            "adjustment_p_value": float(m.pvalues["dep_l1"]),
+        })
     return pd.DataFrame(rows)
 
 
@@ -56,7 +72,7 @@ def kaplan_meier(accounts: pd.DataFrame, segment: str | None = None) -> pd.DataF
         at_risk = (d["duration_months"] >= t).sum()
         events = ((d["duration_months"] == t) & (d["runoff_event"] == 1)).sum()
         if at_risk > 0:
-            surv *= (1 - events / at_risk)
+            surv *= 1 - events / at_risk
         rows.append({"month": int(t), "survival": float(surv)})
     return pd.DataFrame(rows)
 
@@ -71,8 +87,12 @@ def fit_cox_runoff(accounts: pd.DataFrame):
     model = PHReg(d["duration_months"].astype(float), X.astype(float),
                   status=d["runoff_event"].astype(int), ties="efron")
     result = model.fit(disp=0)
-    table = pd.DataFrame({"feature": X.columns, "coef": result.params,
-                          "hazard_ratio": np.exp(result.params)})
+    table = pd.DataFrame({
+        "feature": X.columns,
+        "coef": result.params,
+        "hazard_ratio": np.exp(result.params),
+        "p_value": result.pvalues,
+    })
     return table, result
 
 
@@ -91,8 +111,10 @@ def estimate_core_deposits(ts: pd.DataFrame, beta_summary: pd.DataFrame,
         core_prop = min(raw_core, cap)
         maturity = min(0.5 + 5.0 * core_prop, max_mat)
         balance = float(latest.loc[seg, "balance"])
-        rows.append({"segment": seg, "balance": balance, "stable_proportion": stable,
-                     "pass_through": passthrough, "core_proportion": core_prop,
-                     "core_balance": balance * core_prop, "behavioural_maturity_years": maturity,
-                     "core_cap": cap, "maturity_cap_years": max_mat})
+        rows.append({
+            "segment": seg, "balance": balance, "stable_proportion": stable,
+            "pass_through": passthrough, "core_proportion": core_prop,
+            "core_balance": balance * core_prop, "behavioural_maturity_years": maturity,
+            "core_cap": cap, "maturity_cap_years": max_mat,
+        })
     return pd.DataFrame(rows)
